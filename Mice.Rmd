@@ -1,0 +1,343 @@
+---
+title: "Анализ экспрессии белков в мышиной модели синдрома Дауна"
+author: ""
+date: "`r format(Sys.Date(), format = '%d.%m.%Y')`"
+output:
+    html_document:
+      toc: true
+      toc_depth: 2
+      toc_float: true
+      number_section: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Введение
+
+В данном отчете отражен анализ экспрессии белков в мышиной модели синдрома Дауна, а именно: описание полученных данных, оценка различий в уровне экспрессии белка BDNF_N в разных группах мышей, построение линейной модели для предсказания уровня экспрессии белка ERBB4_N в зависимости от уровня экспрессии других белков, а также анализ главных компонент.
+
+# Методы
+
+Все операции были проведены с использованием  R версии 3.6.3. Для расчетов использовались следующие пакеты:
+
+```{r library packages, message=FALSE, warning=FALSE}
+require(tidyr)
+require(readxl)
+require(ggplot2)
+require(car)
+require(multcomp)
+require(vegan)
+require(plot3D)
+```
+
+Данные взяты отсюда https://archive.ics.uci.edu/ml/datasets/Mice+Protein+Expression#. Файл с данными также приложен к отчету. Перед компиляцией необходимо скачать датасет и указать путь к нему в переменной path.
+
+```{r data, mesage=FALSE}
+path <- 'Data_Cortex_Nuclear.xls'
+mice <- read_excel(path)
+```
+
+# Описание датасета
+
+Датасет состоит из `r nrow(mice) ` наблюдений и `r ncol(mice)` переменных.
+
+```{r data_head, mesage=FALSE, warning=FALSE}
+head(mice)
+```
+
+В описании к датасету было сказано, что для каждой мыши проводилось 15 измерений. Чтобы посчитать, сколько в эксперименте было мышей, использовалась функция из пакета tidyr для разделения идентификатора мыши и номера эксперимента.
+
+```{r mice_count, mesage=FALSE, warning=FALSE}
+mice_separated <- separate(mice, col='MouseID', into=c('Mouse', 'ID'), sep='_', remove=TRUE, extra='warn', fill='right')
+number <- length(unique(mice_separated$Mouse))
+```
+
+Количество мышей в эксперименте равно `r number`. Проверка количества повторных измерений:
+
+```{r replics_count, message=FALSE, warning=FALSE}
+table(mice_separated$Mouse)
+```
+
+Структура данных:
+
+```{r data_structure, message=FALSE, warning=FALSE}
+str(mice)
+```
+
+В данных есть пять номинативных переменных: идентификатор мыши MouseID, генотип Genotype, поведение (стимуляция к обучению) Behavior, обработка (введение раствора) Treatment и синтетическая переменная class. Все переменные, кроме MouseID, были переведены в факторные.
+
+```{r data_structure_2, message=FALSE, warning=FALSE}
+mice_factors <- sapply(mice[, 79:82], as.factor)
+mice <- cbind(mice[, 1:78], mice_factors)
+mice$MouseID <- as.factor(mice$MouseID)
+str(mice)
+```
+
+В эксперименте можно выделить две группы мышей: контрольную (Control) и опытную с модельной трисомией (Ts65Dn), которым вводили физраствор (Saline) или раствор мемантина (Memantine) и подвергали воздействию электрическим шоком после 3х минутного обследования новой клетки (C/S, стимулированные к обучению) или сразу при помещении в нее (S/C, не стимулированные к обучению). Суммируя все условия, получилось 8 групп мышей, которые и представлены переменной class. Группы оказались несбалансированными:
+
+```{r groups, message=FALSE, warning=FALSE}
+table(mice$class)
+```
+
+В датасете обнаружены пропущенные значения:
+
+```{r NA_count, message=FALSE, warning=FALSE}
+NA_count <- nrow(mice) - nrow(na.omit(mice))
+NA_count
+```
+
+# Различие в уровне экспрессии белка BDNF_N
+
+Белок BDNF - нейротрофин, участвует в стимуляции и поддержании развития нейронов. Следовательно, различие в уровне продукции этого белка в разных классах мышей может указывать на его связь с эффективностью обучения мышей под воздействием электрического шока.
+Для анализа был выбран многофакторный дисперсионный анализ в параметризации contr.sum с применением третьего типа суммы квадратов, поскольку группы несбалансированы.
+
+```{r data_BDNF, message=FALSE, warning=FALSE}
+mice_BDNF_N <- mice[, c("BDNF_N", "Genotype", "Treatment", "Behavior", "class")]
+mice_BDNF_N <- na.omit(mice_BDNF_N)
+table(mice_BDNF_N$class)
+```
+
+## Построение линейной модели co взаимодействием
+
+```{r lm_BDFN, message=FALSE, warning=FALSE}
+mod_mice_BDNF <- lm(BDNF_N ~ Genotype*Treatment*Behavior, data=mice_BDNF_N, contrasts=list(Genotype=contr.sum, Treatment=contr.sum, Behavior=contr.sum))
+summary(mod_mice_BDNF)
+
+```
+
+```{r anova_BDFN, message=FALSE, warning=FALSE}
+mice_anova <- Anova(mod_mice_BDNF, type='III')
+mice_anova
+```
+
+Из вывода статистики видно, что взаимодействие факторов оказалось значимым, следовательно, главные эффекты не были рассмотрены. Основываясь на результатах дисперсионного анализа выявлено значимое различие уровня экспрессии белка BDNF_N в группах мышей с разным генотипом в зависимости от обработки физраствором или мемантином (F = 6.0987, p-value = 0.013684, df1 = 1,  df2 = 1069). Кроме того, выявлено значимое различие в уровне экспрессии у мышей с разным генотипом в зависимости от стимуляции электрическим шоком (F = 85.0389, p-value < 2.2e-16, df1 = 1,  df2 = 1069). Также значимым оказалось сочетание факторов различной обработки физраствором или мемантином и типом стимуляции электрическим шоком (F = 7.3894, p-value = 0.006667, df1 = 1,  df2 = 1069).
+
+
+## Проверка условий применимости
+
+```{r fortify, message=FALSE, warning=FALSE}
+mod_diag <- fortify(mod_mice_BDNF)
+```
+
+График расстояний Кука - влиятельных наблюдений нет.
+
+```{r cook_BDNF, message=FALSE, warning=FALSE}
+gg_cook_BDNF <- ggplot(mod_diag, aes(x = 1:nrow(mod_diag), y = .cooksd))+
+  geom_bar(stat = "identity")+ 
+  ggtitle("График расстояний Кука")
+gg_cook_BDNF
+```
+
+График распределения остатков - присутствует небольшой разброс, но наблюдений достаточно много.
+
+```{r residuals_BDNF, message=FALSE, warning=FALSE}
+ggplot(mod_diag, aes(x = Genotype, y = .stdresid))+
+  geom_boxplot()+
+  theme_bw()+
+  ggtitle("График остатков по генотипу")
+ggplot(mod_diag, aes(x = Treatment, y = .stdresid))+
+  geom_boxplot()+
+  theme_bw()+
+  ggtitle("График остатков по введению лекарства")
+ggplot(mod_diag, aes(x = Behavior, y = .stdresid))+
+  geom_boxplot()+
+  theme_bw()+
+  ggtitle("График остатков по стимуляции электрическим шоком")
+```
+
+Квантильный график остатков - распределены в целом нормально.
+
+```{r qq_residuals_BDNF, message=FALSE, warning=FALSE}
+qqPlot(mod_mice_BDNF, id = FALSE, main = "Квантильный график остаков")
+```
+
+## Пост-хок тест
+
+Для проведения пост-хок теста воспользуемся синтетической переменной class.
+
+```{r post-hoc, message=FALSE, warning=FALSE}
+lm_hoc <- lm(BDNF_N ~ class - 1, data=mice_BDNF_N)
+hoc_tukey <- glht(model=lm_hoc, linfct=mcp(class='Tukey'))
+hoc <- summary(hoc_tukey)
+hoc
+```
+
+Не все пары имеют биологическое значение, поэтому рассмотрим только следующие:
+
+t-SC-sal vs. c-SC-sal влияние генотипа в исходных условиях НЕТ
+
+t-SC-mem vs. t-SC-sal влияние мемантина на опытных мышей НЕТ
+
+c-SC-mem vs. c-SC-sal влияние мемантина на контрольных мышей ДА
+
+t-SC-mem vs. c-SC-sal влияние мемантина и различного генотипа НЕТ
+
+c-CS-sal vs. c-SC-sal влияние стимуляции к обучению на контрольных мышей ДА
+
+t-CS-sal vs. t-SC-sal влияние стимуляции к обучению на опытных мышей ДА
+
+t-CS-mem vs. t-SC-mem влияние стимуляции к обучению на опытных мышей с инъекцией мемантина НЕТ
+
+t-CS-mem vs. t-CS-sal влияние мемантина на опытных мышей при стимуляции к обучению НЕТ
+
+t-CS-mem vs. c-CS-sal влияние мемантина и генотипа при стимуляции к обучению ДА
+
+Таким образом, было выявлено, что стимуляция к обучению значимо влияет на уровень экспрессии белка BDNF_N как среди контрольных, так и опытных мышей с трисомией (t = -5.083, p-value < 0.001, t = 3.292, p-value = 0.02264). Также уровень экспрессии значимо различается среди контрольных мышей при введении мемантина без стимуляции к обучению (t = 4.047, p-value = 0.00132). Кроме того, при стимуляции к обучению группа контрольных мышей без введения мемантина значимо отличалась по уровню экспрессии белка от опытных мышей с инъекцией мемантина (t = -5.199, p-value < 0.001), в то время как сравнение опытных мышей не выявило изменений при введении мемантина.
+
+# Построение линейной модели для предсказания уровня продукции белка ERBB4_N на основании данных о других белках
+
+Зависимая переменная ERBB4_N распределена в целом нормально:
+
+```{r ERBB4_distribution, message=FALSE, warning=FALSE}
+ggplot(mice, aes(ERBB4_N))+
+  geom_histogram(fill='green', col='grey')+
+  theme_bw()+
+  labs(title = 'Гистограмма распределения значений переменной ERBB4_N.', y = "Количество")
+```
+
+## Построение простой линейной модели
+
+```{r data_ERBB4, message=FALSE, warning=FALSE}
+mice_ERBB4_N <- mice[, 2:78]
+full_mod <- lm(ERBB4_N ~ ., data=mice_ERBB4_N)
+summary(full_mod)
+```
+
+Только 23 угловых коэффициента оказались значимыми, белок pS6_N не определился из-за высокой коллинеарности, поэтому был удален из модели.
+
+```{r lm_ERBB4_N, message=FALSE, warning=FALSE}
+mice_ERBB4_N <- mice_ERBB4_N[, names(mice_ERBB4_N) != 'pS6_N']
+full_mod_ERBB4 <- lm(ERBB4_N ~ ., data=mice_ERBB4_N)
+```
+
+## Оценка качества модели
+
+Гетероскедастичность остатков - паттерна нет.
+
+```{r ERBB4_residuals, message=FALSE, warning=FALSE}
+mod_diag_erbb4 <- fortify(full_mod_ERBB4)
+gg_resid_ERBB4 <- ggplot(data = mod_diag_erbb4, aes(x = .fitted, y = .stdresid)) + 
+  geom_point() + 
+  geom_hline(yintercept = 0)+
+  geom_hline(yintercept = 2, color = "blue") +
+  geom_hline(yintercept = -2, color = "blue")+
+  theme_bw()+
+  labs(title = 'График распределения остатков полной модели.', y = "Стандартизованные остатки", x = "Предсказанные значения")
+gg_resid_ERBB4
+```
+
+Нормальность распределения остатков - небольшое смещение.
+
+```{r residuals_normality_ERBB4, message=FALSE, warning=FALSE}
+qq_full_mod <- qqPlot(mod_diag_erbb4$.fitted, ylab="Предсказанные значения", xlab="Квантили", id=FALSE, main = "QQ-plot")
+```
+
+График расстояний Кука - влиятельных наблюдений нет.
+
+```{r cook_ERBB4, message=FALSE, warning=FALSE}
+gg_cook_ERBB4 <- ggplot(mod_diag_erbb4, aes(x = 1:nrow(mod_diag_erbb4), y = .cooksd)) + 
+  geom_bar(stat = "identity") + 
+  geom_hline(yintercept = 2, color = "blue")+
+  theme_bw()+
+  labs(title = 'График расстояний Кука для полной модели.', y = "Расстояния Кука", x = "Наблюдения")
+gg_cook_ERBB4
+```
+
+Оценка мультиколлинеарности - есть, значения vif>2 у большей части переменных.
+
+```{r vif_ERBB4, message=FALSE, warning=FALSE}
+vif(full_mod_ERBB4)
+```
+
+## Вывод о качестве модели
+
+В модели много переменных, которые формируют незначимые угловые коэффициенты, необходимо снижение размерности. Распределение остатков не совсем нормальное, что может сказаться на качестве предсказания значений. Кроме того, в модели присутствует очень высокая мультиколлинеарность. Некоторые переменные содержат очень большое количество пропущенных значений, что может искажать картину предсказания, поскольку половина информации датасета теряется. Рекомендуется построение регрессии с использованием главных компонент.
+
+# Анализ главных компонент (PCA)
+
+```{r, data_pca, message=FALSE, warning=FALSE}
+mice_without_na <- na.omit(mice[, 2:78])
+mice_pca <- rda(mice_without_na, scale=TRUE)
+```
+
+## Ординация
+
+График ординации в осях первых двух главных компонент по классу мышей:
+
+```{r ordination_class, message=FALSE, warning=FALSE}
+df_scores <- data.frame(na.omit(mice),
+                        scores(mice_pca, display = "sites", choices = c(1, 2, 3), scaling = "sites"))
+p_scores_class <- ggplot(df_scores, aes(x = PC1, y = PC2))+
+  geom_point(aes(color=class))+
+  coord_equal(xlim = c(-1.2, 1.2), ylim = c(-1.2, 1.2))+
+  ggtitle(label = "Ординация в осях главных компонент")+
+  theme_bw()
+p_scores_class
+```
+
+График ординации в осях первых двух главных компонент по генотипу мышей:
+
+```{r ordination_genotype, message=FALSE, warning=FALSE}
+p_scores_genotype <- ggplot(df_scores, aes(x = PC1, y = PC2))+
+  geom_point(aes(color=Genotype))+
+  coord_equal(xlim = c(-1.2, 1.2), ylim = c(-1.2, 1.2))+
+  ggtitle(label = "Ординация в осях главных компонент")+
+  theme_bw()
+p_scores_genotype
+```
+
+График ординации в осях первых двух главных компонент по стимуляции к обучению мышей:
+
+```{r ordination_behavior, message=FALSE, warning=FALSE}
+p_scores_behavior <- ggplot(df_scores, aes(x = PC1, y = PC2))+
+  geom_point(aes(color=Behavior))+
+  coord_equal(xlim = c(-1.2, 1.2), ylim = c(-1.2, 1.2))+
+  ggtitle(label = "Ординация в осях главных компонент")+
+  theme_bw()
+p_scores_behavior
+```
+
+График ординации в осях первых двух главных компонент по типу инъекции мышам:
+
+```{r ordination_treatment, message=FALSE, warning=FALSE}
+p_scores_treatment <- ggplot(df_scores, aes(x = PC1, y = PC2))+
+  geom_point(aes(color=Treatment))+
+  coord_equal(xlim = c(-1.2, 1.2), ylim = c(-1.2, 1.2))+
+  ggtitle(label = "Ординация в осях главных компонент")+
+  theme_bw()
+p_scores_treatment
+```
+
+## График факторных нагрузок
+
+```{r biplot, message=FALSE, warning=FALSE}
+biplot(mice_pca, scaling = "species", display = "species")
+```
+
+График собственных чисел - выбрано 5 компонент.
+
+```{r eigenvalues, message=FALSE, warning=FALSE}
+screeplot(mice_pca, type = "lines", bstick = TRUE)
+```
+
+## Какой процент объясняет каждая компонента?
+
+```{r components, message=FALSE, warning=FALSE}
+head(summary(mice_pca))
+```
+                         PC1     PC2     PC3     PC4     PC5
+                         
+Proportion Explained   0.2993  0.1735 0.09853 0.09301 0.04263 
+
+## Трехмерный график для первых трех компонент
+
+```{r 3D_plot, message=FALSE, warning=FALSE}
+plot_3D <- scatter3D(df_scores$PC1, df_scores$PC2, df_scores$PC3, xlab='PC1', ylab='PC2', zlab='PC3')
+
+```
+
+## Выводы 
+
+По результатам PCA хорошо группируются только мыши, различные по способу воздействия электрическим шоком (переменная Behavior), по классам кластеризуются слабо. Первые две компоненты описывают менее 50% изменчивости данных, возможно, стоило убрать несколько переменных с большим количеством пропущенных значений, чтобы получить больше наблюдений.
