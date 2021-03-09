@@ -48,7 +48,7 @@ Variables:
 
 *resid.ds* - residual disease present (1=no, 2=yes)
 
-*rx* - treatment group
+*rx* - treatment group (1 - Endoxan, 2 - Endoxan+Adria)
 
 *ecog.ps* - ECOG performance status - functional status of a patient (1 is better)
 
@@ -60,7 +60,7 @@ Conversion into factors:
 
 ```{r to factors, message=FALSE, warning=FALSE}
 ov$resid.ds <- factor(ov$resid.ds, labels = c('No', 'Yes'))
-ov$rx <- factor(ov$rx, labels = c('Endoxan', 'Endoxan+Adria'))
+ov$rx <- factor(ov$rx)
 ov$ecog.ps <- factor(ov$ecog.ps, labels = c('better', 'worse'))
 ```
 
@@ -87,7 +87,7 @@ resid.ds_plot <- ggplot(ov, aes(resid.ds))+
   labs(title = "Residual disease presence")+
   xlab('resid.ds')+
   theme(plot.title = element_text(size=10))
-rx_plot <- ggplot(ov, aes(rx))+
+rx_plot <- ggplot(ov, aes(factor(rx, labels = c('Endoxan', 'Endoxan+Adria'))))+
   geom_bar(fill = 'cadetblue3', col = 'black', width = 0.5)+
   theme_bw()+
   labs(title = "Treatment")+
