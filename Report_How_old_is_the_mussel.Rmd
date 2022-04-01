@@ -1,0 +1,297 @@
+---
+title: "How old is the mussel?"
+author: ""
+date: "`r format(Sys.Date(), format = '%d.%m.%Y')`"
+output:
+    html_document:
+      toc: true
+      toc_depth: 2
+      toc_float: true
+      number_section: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+# Introduction
+
+This report carries out data processing using data received from scientific group that study the aging of mussels. The report includes short EDA and data correction, calculation of some statistics and visualization of the data. Some hypotheses are also setting and testing.
+
+# Methods
+
+The report was made using R version 3.6.3. All computations were performed with "base" and "dplyr" packages. The graphs were plotted using "ggplot2" package. The normality of distributions was assessed by Quantile-Quantile plot. To compare variables t-test was applied.
+
+```{r install packages, message=FALSE}
+install.packages(c("ggplot2", "dplyr"))
+library(ggplot2)
+library(dplyr)
+```
+
+# Consolidation of the data
+
+To join .csv files in one data frame user function was created. Before knit set **path** to the directory (for example: "/home/user/Documents/Data/").
+
+```{r consolidation, warning=FALSE, message=FALSE, error=FALSE}
+path <- ""
+fun_read_data <- function(path) {
+  list_of_files <- list.files(path = path, pattern = "*.csv") 
+  list_of_files <- paste0(path, list_of_files)   
+  all_data <- do.call(rbind, lapply(list_of_files, function(x) read.csv(x)))
+}
+all_data <- fun_read_data(path)
+```
+
+
+
+# Correction of the data and short EDA
+
+## Summary of the data
+
+Function **summary** from the R base package was used to briefly evaluate the data. Using this function one can get some information about variables such as min and max values, names, NA presence, type and some statistics. According to the list of variables, there should be only one character variable - grouping variable **Sex** , others are of numeric type. We have observed some problems: numeric variables **Rings** and **Length** was of character type, there were NA's in almost all variables and variable **Height** had a zero as minimum value (this was a strange observation, maybe it should be NA or just a mistake) and too large maximum value (maybe this mussels was not of the same species or a mutant or more likely a mistake, because other variables are of middle values for this observation). There were also too small values (perhaps too young mussels had been collected or mussels of other species or mutants). 
+
+```{r summary}
+summary(all_data)
+```
+
+
+## Data correction
+
+A new data frame was created to save the raw data. Then some manipulations were performed: changing names of variables to more appropriate ones, conversion of the variables to correct types and NA removing. Calculations of percentage of lost observations are given after all changes.
+
+```{r correction, warning=FALSE }
+data <- all_data
+names(data)[1:9] <- c("Rings", "Sex", "Length", "Diameter", "Height", "Whole_weight", "Shucked_weight", "Viscera_weight", "Shell_weight") 
+data$Sex <- as.factor(data$Sex)
+data <- droplevels(subset(data, Sex == '1' | Sex == '2' | Sex == '3'))  
+levels(data$Sex) <- c('male', 'female', 'juvenile') 
+data <- data %>% mutate_if(is.character, as.numeric)
+data[data == 0] <- NA  
+data_without_NA <- na.omit(data)
+```
+
+New result of summary() function is given below. All variables are of the correct type and name, no NA's and no awkward observations (too large and too small observations were saved, because the reason of deviations is unknown) and **Sex** variable has three levels.
+
+``` {r summary_2}
+summary(data_without_NA)
+```
+
+```{r lost observations}
+percent_invalid_data <- round((((nrow(all_data) - nrow(data_without_NA)) * 100) / nrow(all_data)), 2)
+```
+
+The percentage of lost data = `r percent_invalid_data`. The percentage of incorrect values was very low for this data and will not have an impact on the results of the further analysis. However if there will be a small number of observations other alternative approaches can be used instead of removing NA's.  Many statistical functions and tests in R contain arguments connected to actions with NA's, so incomplete cases can be used. NA's and incorrect values can be replaced on mean or median or other value or even be extrapolated if it is possible to create a valid regression model with another variable. Apparently the latter methods could change statistics, so these methods are used rarely and are not recommended.
+
+## Outliers
+
+The boxplot graphs were used to visualize outliers in each variable. Outliers - observations with values outside of the 1.5 Inter Quartile Range (IQR) from quartile 1 (Q1) and quartile 3 (Q3) - will be shown as dots on boxplot graph. There is a grouping variable **Sex** in the data set, so all distributions were displayed in three groups - male, female and juvenile.
+
+```{r Rings, echo=FALSE}
+boxplot_Rings <- ggplot(data_without_NA, aes(x = Rings, y = Sex, col = Sex))+
+  geom_boxplot()+
+  coord_flip()+
+  labs(title = 'Distribution of mussels by number of rings')+
+  theme_bw()+
+  theme(axis.text.x = element_text(angle = 25, hjust = 1))
+boxplot_Rings
+```
+
+```{r Length, echo=FALSE}
+boxplot_Length <- ggplot(data_without_NA, aes(x = Length, y = Sex, col = Sex))+
+  geom_boxplot()+
+  coord_flip()+
+  labs(title = 'Distribution of mussels by length')+
+  theme_bw()+
+  theme(axis.text.x = element_text(angle = 25, hjust = 1))
+boxplot_Length
+```
+
+```{r Diameter, echo=FALSE}
+boxplot_Diameter <- ggplot(data_without_NA, aes(x = Diameter, y = Sex, col = Sex))+
+  geom_boxplot()+
+  coord_flip()+
+  labs(title = 'Distribution of mussels by diameter')+
+  theme_bw()+
+  theme(axis.text.x = element_text(angle = 25, hjust = 1))
+boxplot_Diameter
+```
+
+```{r Height, echo=FALSE}
+boxplot_Height <- ggplot(data_without_NA, aes(x = Height, y = Sex, col = Sex))+
+  geom_boxplot()+
+  coord_flip()+
+  labs(title = 'Distribution of mussels by height')+
+  theme_bw()+
+  theme(axis.text.x = element_text(angle = 25, hjust = 1))
+boxplot_Height
+```
+
+```{r Whole_weight, echo=FALSE}
+boxplot_Whole_weight <- ggplot(data_without_NA, aes(x = Whole_weight, y = Sex, col = Sex))+
+  geom_boxplot()+
+  coord_flip()+
+  labs(title = 'Distribution of mussels by whole_weight')+
+  theme_bw()+
+  theme(axis.text.x = element_text(angle = 25, hjust = 1))
+boxplot_Whole_weight
+```
+
+
+```{r Shucked_weight, echo=FALSE}
+boxplot_Shucked_weight <- ggplot(data_without_NA, aes(x = Shucked_weight, y = Sex, col = Sex))+
+  geom_boxplot()+
+  coord_flip()+
+  labs(title = 'Distribution of mussels by shucked_weight')+
+  theme_bw()+
+  theme(axis.text.x = element_text(angle = 25, hjust = 1))
+boxplot_Shucked_weight
+```
+
+```{r Viscera_weight, echo=FALSE}
+boxplot_Viscera_weight <- ggplot(data_without_NA, aes(x = Viscera_weight, y = Sex, col = Sex))+
+  geom_boxplot()+
+  coord_flip()+
+  labs(title = 'Distribution of mussels by viscera_weight')+
+  theme_bw()+
+  theme(axis.text.x = element_text(angle = 25, hjust = 1))
+boxplot_Viscera_weight
+```
+
+```{r Shell_weight, echo=FALSE}
+boxplot_Shell_weight <- ggplot(data_without_NA, aes(x = Shell_weight, y = Sex, col = Sex))+
+  geom_boxplot()+
+  coord_flip()+
+  labs(title = 'Distribution of mussels by shell_weight')+
+  theme_bw()+
+  theme(axis.text.x = element_text(angle = 25, hjust = 1))
+boxplot_Shell_weight
+```
+
+As we can see from the data, there are many outliers. In the previous section we have already seen that we had a lot of too small and too large values and here these values are displayed as dots on the graphs.
+
+## Relationship between variables
+
+All possible interactions between variables can be seen in scatterplot matrix. Interactions were visualized using R base package. 
+
+```{r relationship, echo=FALSE}
+correlation_plot <- pairs(data_without_NA[c(1, 3:9)], col = 'blue')
+```
+
+Using the information from the scatterplot matrix we can set several hypotheses about the relationship between variables. From the recent data was supposed that variables listed below may have a strong positive correlation:
+
+**Rings** and **Length**, **Rings** and **Diameter**, **Rings** and **Height** (but after removing one (or two) observation that changes significantly the shape of the scatterplot), **Length** and **Diameter**, **Length** and **Weight**, **Diameter** and **Weight**. These correlations show us, that the older the mussel the more rings it has and the bigger it's size, that sounds quite logical.
+
+# Computations
+
+## Mean and sd of mussel **Length** by **Sex**
+
+Calculations of the mean and standard deviation were made. The length of adult mussels from recent data was more or less similar for males and females, but slightly less for juveniles. As we can see from the boxplot "Distribution of mussels by length" above, mean for juveniles fell into 1.5 IQR from Q1 and Q3 for both male and female mussels, so we cannot say that mean for juveniles was significantly different.
+
+```{r mead and sd, message=FALSE}
+mean_sd_Length <- data_without_NA %>% group_by(Sex) %>% summarise(mean_length = mean(Length), sd_length = sd(Length))
+mean_sd_Length
+```
+
+## Percentage of the mussels with **Height** not more than 0.165
+
+The percentage of the mussels with **Height** less or equal 0.165 was calculated using code below.
+
+```{r height}
+number_height_0165 <- data_without_NA %>% filter(Height <= 0.165) %>% nrow()
+percent_height <- round((number_height_0165  * 100) / nrow(data_without_NA), 2)
+```
+
+The percentage = `r percent_height`.
+
+## Length of mussel more than 92% of all observations
+
+
+```{r length 92}
+length <- data_without_NA %>% select(Length) %>% arrange(Length)
+length_92 <- length[((92 * nrow(length)) / 100) + 1, ]
+```
+
+The length of the next mussel after 92% of mussels = `r length_92`.
+
+## Creation of the **Length_z_scores** variable.
+
+Standardized values for **Length** variable were calculated and new variable **Length_z_scores** was made. For this new variable density plot was created.
+
+```{r standartization}
+data_without_NA_final <- data_without_NA %>% mutate(Length_z_scores = round((Length - mean(Length)) / sd(Length), 3))
+```
+
+```{r density plot length}
+densityplot_Length <- ggplot(data_without_NA_final, aes(Length_z_scores, fill = Sex))+
+  geom_density(alpha = 0.4)+
+  theme_bw()+
+  labs(y = "Density", title = "Density plot for mussel's length after standartization")
+densityplot_Length
+```
+
+Asymmetry of distributions was observed for all levels of **Sex**.
+
+## Comparison of the mussels with 5 and 15 **Rings**
+
+The data were filtered to compare the diameter of mussels with 5 and 15 rings. 
+
+```{r filtration}
+data_filtered <- data_without_NA %>% filter(Rings == 5 | Rings == 15)
+```
+
+Then there was created a boxplot to watch wheter our subset had outliers and QQ plot to assess the normality of distribution.
+
+```{r outliers and distribution, message=FALSE}
+ggplot(data_filtered)+
+  geom_boxplot(aes(y = Diameter, col = factor(Rings)))+
+  labs(y = "Rings", title = "Distribution of mussels by diameter, grouping by rings", color = "Rings")+
+  theme_bw()
+
+qqplot_diam_5 <- ggplot(subset(data_filtered, Rings == 5), aes(sample = Diameter, col = Sex))+
+  stat_qq()+
+  stat_qq_line()+
+  labs(y = "Diameter", x = "Theoretical values", title = "Normal QQ plot for mussels with 5 rings")+
+  theme_bw()
+qqplot_diam_5
+qqplot_diam_15 <- ggplot(subset(data_filtered, Rings == 15), aes(sample = Diameter, col = Sex))+
+  stat_qq()+
+  stat_qq_line()+
+  labs(y = "Diameter", x = "Theoretical values", title = "Normal QQ plot for mussels with 15 rings")+
+  theme_bw()
+qqplot_diam_15
+```
+
+The graphs above show that there were only two outliers in group of mussels with 5 rings. It is clear from QQ plot that for mussels with 5 rings distribution was more or less normal for juveniles. For mussels with 15 rings distribution resembled normal distribution for females and males (which apparently represent adults). So to confirm the H1 (alternative) hypothesis that the diameter of mussels with 5 rings less than the diameter of mussels with 15 rings one-sided t-test was used with 95% confidence level. Consequently Ho was that mussels with 5 rings have the diameter not less than mussels with 15 rings.
+
+```{r t test diameter}
+t_Rings <- t.test(x = subset(data_filtered, Rings == 5)$Diameter, y = subset(data_filtered, Rings == 15)$Diameter, alternative = 'less')
+t_Rings
+```
+
+According to the results of t-test Ho hypothesis was rejected because of P-value less than 0.05 (p-value = `r t_Rings$p.value`). So the mussels with 5 rings have less diameter than ones with 15 rings.
+With this knowledge we could set and test hypothesis that **Rings** correlates to **Diameter**. To do this scatterplot was plotted and correlation test was performed with 95% confidence level.
+
+```{r correlation rings_diameter}
+corplot_rings_diameter <- ggplot(data_without_NA, aes(x = Rings, y = Diameter, col = Sex))+ 
+  geom_point()+
+  labs(title = "Correlation diagram for variables Rings and Diameter, grouping by Sex")+
+  theme_bw()+
+  facet_grid(.~Sex)
+corplot_rings_diameter
+```
+
+Some positive correlation was observed on the graph. Also, we can see that juvenile mussels have less number of rings and less diameter then adults.
+
+```{r corr test rings_diameter}
+cor_rings_diameter <- cor.test(data_without_NA$Rings, data_without_NA$Diameter)
+cor_rings_diameter
+```
+
+However according to Pearson's correlation test there is no strong correlation because of small value of correlation coefficient (`r cor_rings_diameter$estimate`). But p-value = `r cor_rings_diameter$p.value` so we could not say that there is no correlation. Such low correlation coefficient could be obtained because of big variation in data.
+
+
+# Discussion
+
+This researching report was made to process the mussel aging data and made statistical analysis. Initially all pieces of data were joined in one data frame using the function. EDA has shown that the data were collected with some negligence: there was NA's and invalid values. In the boxplots of each numeric variable we observed a lot of outliers. This amount of outliers could indicate that data were collected with uncounted factors. From calculations of mean and standard deviation can be seen that juvenile mussels had slightly different length in comparison with adult mussels, but this distinction was not significant. Number of rings indicated the age of a mussel positively correlates with its diameter. There was also shown that mussels with 5 rings were mostly juvenile, and mussels with 15 rings were adults. Further manipulations with data can be provided to test more hypotheses about correlation of variables and to perform regression analysis.
+
+
+
