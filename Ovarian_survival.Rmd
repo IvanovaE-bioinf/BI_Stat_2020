@@ -1,0 +1,367 @@
+---
+title: "Ovarian cancer survival analisys"
+author: ""
+date: "`r format(Sys.Date(), format = '%d.%m.%Y')`"
+output:
+    html_document:
+      toc: true
+      toc_depth: 2
+      toc_float: true
+      number_section: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Introduction 
+
+This report represents survival analysis using ovarian cancer data set from package 'survival' and includes short EDA, Kaplan-Meier survival curves and assessment of the factors that influence on survival.
+
+# Methods
+
+All computations were performed in RStudio with R version 3.6.3. Required packages:
+```{r installing packages, message=FALSE}
+require(survival)
+require(survminer)
+require(ggplot2)
+require(coin)
+require(ggfortify)
+require(ggpubr)
+```
+
+# EDA
+
+```{r data, message=FALSE, warning=FALSE}
+ov <- ovarian
+str(ov)
+summary(ov)
+```
+
+Variables:
+
+*futime* - survival or censoring time
+
+*fustat* - censoring status
+
+*age* - in years
+
+*resid.ds* - residual disease present (1=no, 2=yes)
+
+*rx* - treatment group (1 - Endoxan, 2 - Endoxan+Adria)
+
+*ecog.ps* - ECOG performance status - functional status of a patient (1 is better)
+
+```{r NA, message=FALSE, warning=FALSE}
+sum(is.na(ov))
+```
+
+Conversion into factors:
+
+```{r to factors, message=FALSE, warning=FALSE}
+ov$resid.ds <- factor(ov$resid.ds, labels = c('No', 'Yes'))
+ov$rx <- factor(ov$rx)
+ov$ecog.ps <- factor(ov$ecog.ps, labels = c('better', 'worse'))
+```
+
+```{r distribution, message=FALSE, warning=FALSE}
+age_plot <- ggplot(ov, aes(age))+
+  geom_histogram(fill = 'cadetblue3', binwidth = 5, col = 'black')+
+  theme_bw()+
+  labs(title = "Distribution \nof the patient age")+
+  theme(plot.title = element_text(size=10))
+futime_plot <- ggplot(ov, aes(futime))+
+  geom_histogram(fill = 'cadetblue3', binwidth = 80, col = 'black')+
+  theme_bw()+
+  labs(title = "Distribution \nof the survival time")+
+  theme(plot.title = element_text(size=10))
+fustat_plot <- ggplot(ov, aes(factor(fustat, labels =  c('Censored', 'Death'))))+
+  geom_bar(fill = 'cadetblue3', col = 'black', width = 0.5)+
+  theme_bw()+
+  labs(title = "Censoring status")+
+  xlab('fustat')+
+  theme(plot.title = element_text(size=10))
+resid.ds_plot <- ggplot(ov, aes(resid.ds))+
+  geom_bar(fill = 'cadetblue3', col = 'black', width = 0.5)+
+  theme_bw()+
+  labs(title = "Residual disease presence")+
+  xlab('resid.ds')+
+  theme(plot.title = element_text(size=10))
+rx_plot <- ggplot(ov, aes(factor(rx, labels = c('Endoxan', 'Endoxan+Adria'))))+
+  geom_bar(fill = 'cadetblue3', col = 'black', width = 0.5)+
+  theme_bw()+
+  labs(title = "Treatment")+
+  xlab('rx')+
+  theme(plot.title = element_text(size=10))
+ecog_plot <- ggplot(ov, aes(ecog.ps))+
+  geom_bar(fill = 'cadetblue3', col = 'black', width = 0.5)+
+  theme_bw()+
+  labs(title = "ECOG perfomance status")+
+  xlab('ecog.ps')+
+  theme(plot.title = element_text(size=10))
+arr <- ggarrange(age_plot, futime_plot, fustat_plot, resid.ds_plot, rx_plot, ecog_plot, ncol=3, nrow=2)
+arr
+```
+
+It makes sense to create a new dummy variable of age. The median value of age was taken as the separation basis.
+
+```{r dummy_age, message=FALSE, warning=FALSE}
+ov$dummy_age <- ifelse(ov$age > 57, 'Older', 'Younger')
+ov$dummy_age <- as.factor(ov$dummy_age)
+dummy_age_plot <- ggplot(ov, aes(dummy_age))+
+  geom_bar(fill = 'cadetblue3', col = 'black', width = 0.5)+
+  theme_bw()+
+  labs(title = "Age of the patients")+
+  xlab('dummy_age')
+dummy_age_plot
+```
+
+To assess the differences between groups of different age and treatment a hybrid variable was created:
+
+```{r treatment_age, message=FALSE, warning=FALSE}
+ov$rx_age <- interaction(ov$rx, ov$dummy_age)
+rx_age_plot <- ggplot(ov, aes(rx_age))+
+  geom_bar(fill = 'cadetblue3', col = 'black', width = 0.5)+
+  theme_bw()+
+  labs(title = "Age of the patients and treatment")+
+  xlab('rx_age')
+rx_age_plot
+```
+
+To assess the differences between groups of different age and ECOG status a hybrid variable was created:
+
+```{r ecog_age, message=FALSE, warning=FALSE}
+ov$ecog_age <- interaction(ov$ecog.ps, ov$dummy_age)
+ecog_age_plot <- ggplot(ov, aes(ecog_age))+
+  geom_bar(fill = 'cadetblue3', col = 'black', width = 0.5)+
+  theme_bw()+
+  labs(title = "Age of the patients and ECOG status")+
+  xlab('ecog_age')
+ecog_age_plot
+```
+
+To assess the differences between groups of different ECOG status and treatment a hybrid variable was created:
+
+```{r treatment_ecog, message=FALSE, warning=FALSE}
+ov$rx_ecog <- interaction(ov$rx, ov$ecog.ps)
+rx_ecog_plot <- ggplot(ov, aes(rx_ecog))+
+  geom_bar(fill = 'cadetblue3', col = 'black', width = 0.5)+
+  theme_bw()+
+  labs(title = "ECOG status of the patients and treatment")+
+  xlab('rx_age')
+rx_ecog_plot
+```
+
+*Summarizing of the EDA results:*
+
+- most variables are nominative;
+
+- no NA's;
+
+- age of the patients distributed almost normally;
+
+- death or censored time distribution is not normal (or normal by a stretch of imagination);
+
+- slightly more than half of the patients is censored;
+
+- more patients had residual disease after treatment;
+
+- treatment groups were balanced, with equal quantity;
+
+- slightly more patients had better ECOG performance status of 1, others had status 2;
+
+- groups by age and treatment are not well balanced;
+
+- groups by age and ECOG status are almost well balanced;
+
+- groups by treatment and ECOG status are almost well balanced.
+
+
+# Kaplan-Meier Survival Curves
+
+```{r km, message=FALSE, warning=FALSE}
+km <- with(ov, Surv(futime, fustat))
+km
+```
+
+```{r survival curve, message=FALSE, warning=FALSE}
+km_fit <- survfit(km ~ 1, data=ov)
+summary(km_fit)
+autoplot(km_fit, main = 'Survival curve')+
+  theme_bw()
+```
+
+From the Kaplan-Meier curve we can see that the experiment had finished with censored patients.
+
+# Differences in survival between groups
+
+## Influence of different factors
+
+Influence of the treatment on survival:
+
+```{r km_treatment, message=FALSE, warning=FALSE}
+km_treatment_fit <- survfit(km ~ rx, data=ov)
+autoplot(km_treatment_fit, main = 'Survival curves, by treatment')+
+  theme_bw()
+```
+
+Influence of the age on survival:
+
+```{r km_age, message=FALSE, warning=FALSE}
+km_age_fit <- survfit(km ~ dummy_age, data=ov)
+autoplot(km_age_fit, main = 'Survival curves, by age')+
+  theme_bw()
+```
+
+Influence of the residual disease presence on survival:
+
+```{r km_resid, message=FALSE, warning=FALSE}
+km_resid_fit <- survfit(km ~ resid.ds, data=ov)
+autoplot(km_resid_fit, main = 'Survival curves, by residual disease presence')+
+  theme_bw()
+```
+
+Influence of the ECOG performance status on survival:
+
+```{r km_ecog, message=FALSE, warning=FALSE}
+km_ecog_fit <- survfit(km ~ ecog.ps, data=ov)
+autoplot(km_ecog_fit, main = 'Survival curves, by ECOG status')+
+  theme_bw()
+```
+Influence of the age and treatment on survival:
+
+```{r km_treatment_age, message=FALSE, warning=FALSE}
+km_rx_age_fit <- survfit(km ~ rx_age, data=ov)
+autoplot(km_rx_age_fit, main = 'Survival curves, by treatment and age')+
+  theme_bw()
+```
+
+Influence of the age and ECOG status on survival:
+
+```{r km_ecog_age, message=FALSE, warning=FALSE}
+km_ecog_age_fit <- survfit(km ~ ecog_age, data=ov)
+autoplot(km_ecog_age_fit, main = 'Survival curves, by ECOG status and age')+
+  theme_bw()
+```
+
+Influence of the ECOG status and treatment on survival:
+
+```{r km_treatment_ecog, message=FALSE, warning=FALSE}
+km_rx_ecog_fit <- survfit(km ~ rx_ecog, data=ov)
+autoplot(km_rx_ecog_fit, main = 'Survival curves, by treatment and ECOG status')+
+  theme_bw()
+```
+
+*Results of survival curves' analysis:* (only visual analysis!)
+
+- it seems that Endoxan+Adria treatment worked better than Endoxan only;
+
+- younger patients survived better, but many of them were censored on the segment [750-1200];
+
+- patients with no residual disease survived better;
+
+- patients with better ECOG perfomance status survived better on the segment [500-1200];
+
+- older patients treated with Endoxan only survived worse than treated with Endoxan+Adria, and worse than younger patients regardless of the treatment of the latter;
+
+- no obvious difference between younger patients with different treatment;
+
+- logically, older patients with worse/better status survived worse than younger with worse/better status;
+
+- patients with better status treated with Endoxan+Adria survived better then others, with six censored patients (maybe recovered?).
+
+## Log-rank tests
+
+Log-rank tests were performed to assess the significance of the differences between groups.
+
+```{r lr_treatment, message=FALSE, warning=FALSE}
+survdiff(formula = km ~ rx, data = ov)
+logrank_test(km ~ rx, data = ov)
+```
+
+```{r lr_age, message=FALSE, warning=FALSE}
+survdiff(formula = km ~ dummy_age, data = ov)
+logrank_test(km ~ dummy_age, data = ov)
+```
+
+```{r lr_resid, message=FALSE, warning=FALSE}
+survdiff(formula = km ~ resid.ds, data = ov)
+logrank_test(km ~ resid.ds, data = ov)
+```
+
+```{r lr_ecog, message=FALSE, warning=FALSE}
+survdiff(formula = km ~ ecog.ps, data = ov)
+logrank_test(km ~ ecog.ps, data = ov)
+```
+
+
+```{r lr_treatment_age, message=FALSE, warning=FALSE}
+survdiff(formula = km ~ rx_age, data = ov)
+logrank_test(km ~ rx_age, data = ov)
+```
+
+```{r lr_ecog_age, message=FALSE, warning=FALSE}
+survdiff(formula = km ~ ecog_age, data = ov)
+logrank_test(km ~ ecog_age, data = ov)
+```
+
+```{r lr_treatment_ecog, message=FALSE, warning=FALSE}
+survdiff(formula = km ~ rx_ecog, data = ov)
+logrank_test(km ~ rx_ecog, data = ov)
+```
+
+*Results of the group differences analysis:*
+
+- no difference significant differences between treatment groups (Z=-1.0296, p-value=0.3032);
+
+- no differences between age groups (Z=-1.5717, p-value=0.116);
+
+- almost significant difference between patients with and without residual disease (Z=1.9234, p-value=0.05444);
+
+- no difference between ECOG groups (Z=0.69106, p-value=0.4895);
+
+- no difference between four groups by age and treatment (chi-squared = 5.4522, df = 3, p-value = 0.1415);
+
+- no difference between four groups by age and ECOG status (chi-squared = 2.8655, df = 3, p-value = 0.4128);
+
+- no difference between four groups by treatment and ECOG status (chi-squared = 3.159, df = 3, p-value = 0.3677).
+
+
+# Analysis of the factors which affect the survival
+
+## Cox model
+
+```{r cox, message= FALSE, warning=FALSE}
+cox <- coxph(formula = km ~ age + resid.ds + rx + ecog.ps , data = ov)
+summary(cox)
+
+cox_fit <- survfit(cox)
+
+autoplot(cox_fit, main = 'Kaplan-Meier survival curve, corrected')+
+  theme_bw()
+```
+
+According to the Cox model only age variable is significant (p-value=0.00777), but covariates in this model are non variable during time. Changing of each component is shown on the plots below.
+
+```{r covariates, message=FALSE, warning=FALSE}
+aa_fit <- aareg(km ~ age + resid.ds + rx + ecog.ps , data = ov)
+autoplot(aa_fit, main = 'Changing of the model components')+
+  theme_bw()
+```
+
+## Risk ratio
+
+```{r risk ratio, message=FALSE, warning=FALSE}
+fit.coxph <- coxph(km ~ dummy_age + resid.ds + rx + ecog.ps , data = ov)
+ggforest(fit.coxph, data = ov)
+```
+
+Risk ratio doesn't significantly change between groups of patients. P-values represented on the plot above are lower then 0.05, but we can see some tendencies. Perhaps the larger group of patients would provide more relevant results.
+
+
+
+
+
+
+
+
