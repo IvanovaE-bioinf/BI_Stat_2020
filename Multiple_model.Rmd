@@ -1,0 +1,270 @@
+---
+title: "Подбор модели для предсказания стоимости домов в Бостоне"
+author: ""
+date: "`r format(Sys.Date(), format = '%d.%m.%Y')`"
+output:
+    html_document:
+      toc: true
+      toc_depth: 2
+      toc_float: true
+      number_section: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Введение
+
+В данном отчете отражены этапы построения и оценки качества полной линейной модели для предсказания стоимости домов в Бостоне. Данные взяты из пакета MASS.
+
+# Методы
+
+Все операции по подбору и оценке модели были проведены с использованием  R версии 3.6.3. Для расчетов использовались следующие пакеты:
+
+```{r install packages, message=FALSE, eval=FALSE}
+install.packages(c("MASS", "ggplot2", "dplyr", "GGally", "car", "ggpubr"))
+
+```
+
+```{r library packages, message=FALSE, warning=FALSE}
+library("MASS")
+library("ggplot2")
+library("dplyr")
+library("GGally")
+library("car")
+library("ggpubr")
+```
+
+
+# Построение полной модели
+
+Построение полной модели производилось без учета взаимодействия предикторов. В качестве зависимой переменной была взята переменная medv - средняя цена домов в $1000.
+Первичная оценка данных:
+```{r EDA_1, mesage=FALSE, warning=FALSE}
+data <- Boston
+summary(data)
+str(data)
+```
+В датасете присутствуют две переменные, являющиеся скорее номинативными - chas(близость к реке) и rad(доступность к окружной магистрали). Переменная rad на гистограмме разделяется на две группы, поэтому она была переведена в факторную с двумя уровнями. Переменная chas также переведена в фактор.
+
+```{r EDA_2, message=FALSE, warning=FALSE}
+ggplot(data, aes(rad))+
+  geom_histogram(binwidth = 0.4, alpha = 0.5, col = 'black', fill = 'blue')+
+  theme_bw()+
+  labs(title = 'Гистограмма распределения значений переменной rad.', y = "Количество")
+data$rad_nom <- ifelse(data$rad > 10, 'H', 'L') # где H - high, L - low
+data$rad_nom <- as.factor(data$rad_nom)
+data$chas <- as.factor(data$chas)
+```
+
+Проверка нормальности распределения зависимой переменной показала, что она выглядит более-менее нормально, с небольшим количеством выбросов.
+```{r dependent variable, message=FALSE, warning=FALSE}
+medv <- ggplot(data, aes(medv))+
+  geom_histogram(binwidth = 0.8, alpha = 0.5, col = 'black', fill = 'blue')+
+  theme_bw()+
+  labs(title = 'Гистограмма распределения значений переменной medv.', y = "Количество")
+medv
+```
+
+Также была проведена оценка распределения других количественных переменных. Не все переменные распределены нормально, что может ухудшать качество модели.
+```{r variables, message=FALSE, warning=FALSE}
+crim_v <- ggplot(data, aes(x = crim))+
+  geom_histogram(col = 'black', fill = 'blue')+
+  theme_bw()
+zn_v <- ggplot(data, aes(x = zn))+
+  geom_histogram(col = 'black', fill = 'blue')+
+  theme_bw()
+indus_v <- ggplot(data, aes(x = indus))+
+  geom_histogram(col = 'black', fill = 'blue')+
+  theme_bw()
+nox_v <- ggplot(data, aes(x = nox))+
+  geom_histogram(col = 'black', fill = 'blue')+
+  theme_bw()
+rm_v <- ggplot(data, aes(x = rm))+
+  geom_histogram(col = 'black', fill = 'blue')+
+  theme_bw()
+age_v <- ggplot(data, aes(x = age))+
+  geom_histogram(col = 'black', fill = 'blue')+
+  theme_bw()
+dis_v <- ggplot(data, aes(x = dis))+
+  geom_histogram(col = 'black', fill = 'blue')+
+  theme_bw()
+tax_v <- ggplot(data, aes(x = tax))+
+  geom_histogram(col = 'black', fill = 'blue')+
+  theme_bw()
+ptratio_v <- ggplot(data, aes(x = ptratio))+
+  geom_histogram(col = 'black', fill = 'blue')+
+  theme_bw()
+black_v <- ggplot(data, aes(x = black))+
+  geom_histogram(col = 'black', fill = 'blue')+
+  theme_bw()
+lstat_v <- ggplot(data, aes(x = lstat))+
+  geom_histogram(col = 'black', fill = 'blue')+
+  theme_bw()
+arr <- ggarrange(crim_v, zn_v, indus_v, nox_v, rm_v, age_v, dis_v, tax_v, ptratio_v, black_v, lstat_v,ncol = 3, nrow = 4)
+arr
+```
+
+Для того, чтобы оценить значимость коэффициентов перед предикторами была проведена стандартизация количественных переменных:
+```{r standartization, message=FALSE, warning=FALSE}
+data_std <- data %>% select(c(1:8, 10:15)) %>% mutate_at(c(1:3, 5:13), funs(scale))
+```
+
+Построение полной модели на стандартизованных данных:
+```{r full_model_std, message=FALSE, warning=FALSE}
+full_mod_std <- lm(medv ~ ., data_std)
+summary(full_mod_std)
+```
+
+Из вывода статистики по полной модели на стандартизованных данных видно, что коэффициенты перед предикторами age и indus оказались незначимыми - p-value для них составило 0.97 и 0.92 соответственно при уровне значимости 0.05. Наибольшим по модулю коэффициентом обладает переменная rad, переведенная в двухуровневый фактор, но ее неравномерное распределение не позволяет делать однозначные выводы о ее влиянии. Поэтому было решено не переводить эту переменную в фактор для дальнейшей работы с моделью.
+Новая полная модель со стандартизованными предикторами имеет следующий вывод статистики:
+```{r full_mod_std_new, message=FALSE, warning=FALSE}
+data_std_new <- data %>% select(c(1:14)) %>% mutate_at(c(1:3, 5:8, 10:14), funs(scale))
+full_mod_std_new <- lm(medv ~ ., data_std_new)
+summary(full_mod_std_new)
+```
+
+В данной модели предиктором с самым большим по модулю коэффициентом выступает уже lstat - процент населения с низким статусом, что вполне логично (чем меньше статус населения, тем меньше доход и ниже стоимость жилья). Также наблюдается небольшое повышение доли объясненной изменчивости (Adjusted R-squared:  0.7338 против 0.7306).
+
+# Диагностика модели
+
+## Построение полной модели на исходных данных
+
+```{r full_mod, message=FALSE, warning=FALSE}
+data <- data %>% select(c(1:14))
+full_mod <- lm(medv ~ ., data)
+summary(full_mod)
+```
+
+Чтобы провести диагностику модели была использована функция fortify.
+```{r fortify, message=FALSE, warning=FALSE}
+mod_diag <- fortify(full_mod)
+```
+
+## Проверка линейности взаимосвязи и наличия гетероскедастичности
+
+Для проверки линейности взаимосвязи и наличия гетероскедастичности был построен график остатков. В остатках присутствует некоторый паттерн, что свидетельствует о нелинейности взаимосвязи. Паттерн напоминает воронку, что свидетельствует о наличии гетероскедастичности - непостоянстве дисперсии.
+```{r residuals, message=FALSE, warning=FALSE}
+gg_resid <- ggplot(data = mod_diag, aes(x = .fitted, y = .stdresid)) + 
+  geom_point() + 
+  geom_hline(yintercept = 0)+
+  geom_hline(yintercept = 2, color = "blue") +
+  geom_hline(yintercept = -2, color = "blue")+
+  theme_bw()+
+  labs(title = 'График распределения остатков полной модели.', y = "Стандартизованные остатки", x = "Предсказанные значения")
+gg_resid
+```
+
+## Проверка нормальности распределения остатков
+
+Нормальность распределения остатков была оценена с помощью графика QQ-plot. Сильного отклонения от нормальности не наблюдается.
+
+```{r qqplot, message=FALSE, warning=FALSE}
+qq_full_mod <- qqPlot(mod_diag$.fitted, ylab="Предсказанные значения", xlab="Квантили", id=FALSE, main = "QQ-plot")
+```
+
+## Проверка наличия влиятельных наблюдений
+
+Для проверки влиятельных наблюдений был построен график расстояний Кука. Поскольку значений, выходящих за порог нет, можно сделать вывод об отсутствии влиятельных наблюдений.
+
+```{r Cook, message=FALSE, warning=FALSE}
+gg_cook <- ggplot(mod_diag, aes(x = 1:nrow(mod_diag), y = .cooksd)) + 
+  geom_bar(stat = "identity") + 
+  geom_hline(yintercept = 2, color = "blue")+
+  theme_bw()+
+  labs(title = 'График расстояний Кука для полной модели.', y = "Расстояния Кука", x = "Наблюдения")
+gg_cook
+
+```
+
+## Проверка на мультиколлинеарность
+
+Чтобы посмотреть на возможные взаимосвязи между количественными предикторами была построена тепловая карта корреляций. На тепловой карте видно, что в модели присутствуют предикторы, которые сильно коррелируют друг с другом - tax/rad, dis/age, indus/nox и другие.
+
+```{r heatmap, message=FALSE, warning=FALSE}
+heatmap <- ggcorr(data, label=TRUE, label_alpha = TRUE)+
+  labs(title = 'Тепловая карта корреляций переменных.')
+heatmap
+```
+
+Также для оценки мультиколлинеарности использовался коэффициент VIF. В модели присутствует много переменных с vif больше 2, что свидетельствует о наличии мультиколлинеарности.
+
+```{r vif, message=FALSE, warning=FALSE}
+vif(full_mod)
+```
+# Предсказание стоимости домов
+
+Для предсказания стоимости домов был выбран предиктор с наибольшим по модулю коэффициентом. Для полной модели с одним факторным предиктором это переменная lstat.
+Графики предсказанных значений были построены для двух уровней chas.
+
+```{r predict_0, message=FALSE, warning=FALSE}
+new_data <- data.frame(
+  lstat = seq(min(data$lstat), max(data$lstat), length.out = 100),
+  crim = mean(data$crim),
+  zn = mean(data$zn),
+  indus = mean(data$indus),
+  chas = '0',
+  nox = mean(data$nox),
+  rm = mean(data$rm),
+  age = mean(data$age),
+  dis = mean(data$dis),
+  rad = mean(data$rad),
+  tax = mean(data$tax),
+  ptratio = mean(data$ptratio),
+  black = mean(data$black))
+
+predictions <- predict(full_mod, newdata = new_data,  interval = 'confidence')
+
+new_data <- data.frame(new_data, predictions)
+
+predict_plot <- ggplot(new_data, aes(x = lstat, y = fit)) +
+  geom_ribbon(alpha = 0.2, aes(ymin = lwr, ymax = upr)) +
+  geom_line(color = "blue")+ 
+  labs(title = 'Множественная модель, chas = 0.', y = "Предсказанные значения medv")+
+  theme_bw()
+
+predict_plot 
+
+```
+
+
+```{r predict_1, message=FALSE, warning=FALSE}
+new_data_1 <- data.frame(
+  lstat = seq(min(data$lstat), max(data$lstat), length.out = 100),
+  crim = mean(data$crim),
+  zn = mean(data$zn),
+  indus = mean(data$indus),
+  chas = '1',
+  nox = mean(data$nox),
+  rm = mean(data$rm),
+  age = mean(data$age),
+  dis = mean(data$dis),
+  rad = mean(data$rad),
+  tax = mean(data$tax),
+  ptratio = mean(data$ptratio),
+  black = mean(data$black))
+
+predictions_1 <- predict(full_mod, newdata = new_data_1,  interval = 'confidence')
+
+new_data_1 <- data.frame(new_data_1, predictions_1)
+
+predict_plot_1 <- ggplot(new_data_1, aes(x = lstat, y = fit)) +
+  geom_ribbon(alpha = 0.2, aes(ymin = lwr, ymax = upr)) +
+  geom_line(color = "blue")+ 
+  labs(title = 'Множественная модель, chas = 1.', y = "Предсказанные значения medv")+
+  theme_bw()
+
+predict_plot_1 
+
+```
+
+# Выводы
+
+Полная модель, включающая в себя все переменные, в том числе факторную переменную chas, имеет множество проблем, среди которых особенно выделяется мультиколлинеарность и гетероскедастичность остатков. Не все предикторы имеют нормальное распределение, кроме того, не все коэффициенты перед предикторами являются значимыми. Таким образом, полная модель не может предсказать стоимость домов с достаточной точностью, необходимо провести её оптимизацию. 
+
+
+
+
+
+
